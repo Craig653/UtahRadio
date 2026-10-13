@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /**
@@ -197,10 +198,32 @@ class RadioService : MediaLibraryService() {
         val currentSong = if (current.extras?.getBoolean(EXTRA_SONG) == true) current.title?.toString() else null
         if (newTitle == currentSong && (artist ?: "") == (if (currentSong != null) current.artist?.toString() ?: "" else "")) return
 
-        val updated = item.buildUpon().setMediaMetadata(station.metadata(this, newTitle, artist)).build()
+        val coverKey = newTitle?.let { CoverArt.key(artist, it) }
+        SongClock.mark(station.id, coverKey)
+        val haveCover = coverKey != null && CoverArt.has(this, coverKey)
+        val updated = item.buildUpon()
+            .setMediaMetadata(station.metadata(this, newTitle, artist, if (haveCover) coverKey else null))
+            .build()
         player.replaceMediaItem(player.currentMediaItemIndex, updated) // same stream: keeps playing
         if (newTitle != null) {
             prefs.addToHistory(PlayedSong(newTitle, artist ?: "", station.name, System.currentTimeMillis()))
+        }
+
+        // Look up the album cover in the background, then show it if the song is still playing.
+        if (newTitle != null && coverKey != null && !haveCover) {
+            scope.launch {
+                val found = withContext(Dispatchers.IO) { CoverArt.fetch(this@RadioService, artist, newTitle, coverKey) }
+                if (!found) return@launch
+                val now = player.currentMediaItem ?: return@launch
+                val md = now.mediaMetadata
+                if (now.mediaId != station.id || md.extras?.getString(EXTRA_COVER) != null ||
+                    md.title?.toString() != newTitle
+                ) return@launch
+                val withCover = now.buildUpon()
+                    .setMediaMetadata(station.metadata(this@RadioService, newTitle, artist, coverKey))
+                    .build()
+                player.replaceMediaItem(player.currentMediaItemIndex, withCover)
+            }
         }
     }
 

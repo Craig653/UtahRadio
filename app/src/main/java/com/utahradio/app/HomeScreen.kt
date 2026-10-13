@@ -194,7 +194,19 @@ private fun NowPlayingCard(player: Player?, ui: PlayerUi, stations: List<Station
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (station != null) {
+                if (station != null && ui.coverKey != null) {
+                    // Album cover, with the station's logo tucked in the corner.
+                    Box(Modifier.size(112.dp)) {
+                        CoverImage(ui.coverKey, Modifier.size(112.dp), corner = 18.dp) {
+                            StationArt(station, size = 112.dp, corner = 18.dp)
+                        }
+                        StationArt(
+                            station,
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+                            size = 30.dp, corner = 8.dp,
+                        )
+                    }
+                } else if (station != null) {
                     StationArt(station, size = 112.dp, corner = 18.dp)
                 } else {
                     Box(Modifier.size(112.dp).clip(RoundedCornerShape(18.dp)).background(CardColor2),
@@ -379,7 +391,12 @@ private fun AddTile(onClick: () -> Unit) {
 @Composable
 private fun HistoryRow(song: PlayedSong) {
     val time = remember(song.time) { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(song.time)) }
+    val key = remember(song.title, song.artist) { CoverArt.key(song.artist.ifBlank { null }, song.title) }
     Row(verticalAlignment = Alignment.CenterVertically) {
+        CoverImage(key, Modifier.size(46.dp), corner = 8.dp) {
+            Text("♪", color = TextFaint, fontSize = 18.sp)
+        }
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(song.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)

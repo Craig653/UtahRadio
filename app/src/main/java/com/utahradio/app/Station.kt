@@ -89,12 +89,18 @@ fun Station.artUri(context: Context): Uri =
     Uri.parse("content://${context.packageName}.art/$id?v=${(name + artKind).hashCode()}")
 
 const val EXTRA_SONG = "song"
+const val EXTRA_COVER = "cover"
 
 /**
  * What the car screen / notification / home screen show.
  * With a song: title = song, artist = artist. Without: title = station, artist = city.
  */
-fun Station.metadata(context: Context, song: String? = null, artist: String? = null): MediaMetadata {
+fun Station.metadata(
+    context: Context,
+    song: String? = null,
+    artist: String? = null,
+    coverKey: String? = null,
+): MediaMetadata {
     val hasSong = !song.isNullOrBlank()
     return MediaMetadata.Builder()
         .setTitle(if (hasSong) song else name)
@@ -103,11 +109,14 @@ fun Station.metadata(context: Context, song: String? = null, artist: String? = n
         .setSubtitle(if (hasSong) name else subtitle)
         .setAlbumTitle(name)
         .setStation(name)
-        .setArtworkUri(artUri(context))
+        .setArtworkUri(if (coverKey != null) CoverArt.uri(context, coverKey) else artUri(context))
         .setIsBrowsable(false)
         .setIsPlayable(true)
         .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
-        .setExtras(Bundle().apply { putBoolean(EXTRA_SONG, hasSong) })
+        .setExtras(Bundle().apply {
+            putBoolean(EXTRA_SONG, hasSong)
+            if (coverKey != null) putString(EXTRA_COVER, coverKey)
+        })
         .build()
 }
 

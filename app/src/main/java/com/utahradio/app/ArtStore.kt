@@ -154,13 +154,20 @@ class ArtProvider : ContentProvider() {
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         val ctx = context ?: throw FileNotFoundException()
+        val segments = uri.pathSegments
+        if (segments.size == 2 && segments[0] == "cover") {
+            val key = segments[1].filter { it.isLetterOrDigit() }
+            val cover = CoverArt.file(ctx, key)
+            if (!cover.exists()) throw FileNotFoundException(key)
+            return ParcelFileDescriptor.open(cover, ParcelFileDescriptor.MODE_READ_ONLY)
+        }
         val id = uri.lastPathSegment ?: throw FileNotFoundException()
         val station = StationRepository.byId(ctx, id) ?: throw FileNotFoundException(id)
         val file = ArtStore.ensureFile(ctx, station)
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
-    override fun getType(uri: Uri) = "image/png"
+    override fun getType(uri: Uri) = if (uri.pathSegments.firstOrNull() == "cover") "image/jpeg" else "image/png"
     override fun query(uri: Uri, p: Array<out String>?, s: String?, a: Array<out String>?, o: String?): Cursor? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, s: String?, a: Array<out String>?) = 0

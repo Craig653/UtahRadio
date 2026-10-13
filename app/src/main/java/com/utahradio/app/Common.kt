@@ -58,3 +58,37 @@ fun StationArt(station: Station, modifier: Modifier = Modifier, size: Dp? = null
         }
     }
 }
+
+/** Album cover saved by [CoverArt]; shows [placeholder] while loading or if there is none. */
+@Composable
+fun CoverImage(
+    coverKey: String?,
+    modifier: Modifier = Modifier,
+    corner: Dp = 14.dp,
+    placeholder: @Composable () -> Unit = {},
+) {
+    val context = LocalContext.current
+    var bitmap by remember(coverKey) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(coverKey) {
+        if (coverKey == null) { bitmap = null; return@LaunchedEffect }
+        // The cover may still be downloading; check again for a little while.
+        repeat(8) {
+            val b = withContext(Dispatchers.IO) {
+                runCatching {
+                    val f = CoverArt.file(context, coverKey)
+                    if (f.exists()) android.graphics.BitmapFactory.decodeFile(f.absolutePath)?.asImageBitmap() else null
+                }.getOrNull()
+            }
+            if (b != null) { bitmap = b; return@LaunchedEffect }
+            kotlinx.coroutines.delay(2500)
+        }
+    }
+    Box(modifier.clip(RoundedCornerShape(corner)).background(CardColor2), contentAlignment = Alignment.Center) {
+        val b = bitmap
+        if (b != null) {
+            Image(b, contentDescription = "Album cover", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            placeholder()
+        }
+    }
+}

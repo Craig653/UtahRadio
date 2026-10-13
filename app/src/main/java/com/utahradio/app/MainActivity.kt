@@ -85,7 +85,8 @@ class PlayerUi {
     /** When the current song started (we saw it change), and when this station started playing. */
     var songStartedAt by mutableLongStateOf(0L)
     var listeningSince by mutableLongStateOf(0L)
-    private var lastSongKey: String? = null
+    /** Album cover for the current song (null = show the station's picture). */
+    var coverKey by mutableStateOf<String?>(null)
     private var lastPlayingId: String? = null
 
     val isActive get() = isPlaying || isBuffering || requestedId != null
@@ -100,8 +101,9 @@ class PlayerUi {
         song = if (hasSong) md.title?.toString() else null
         artist = if (hasSong) md.artist?.toString() else null
         val now = System.currentTimeMillis()
-        val songKey = "$currentId|$song|$artist"
-        if (songKey != lastSongKey) { lastSongKey = songKey; songStartedAt = now }
+        coverKey = md.extras?.getString(EXTRA_COVER)
+        val s = song
+        songStartedAt = if (s != null) SongClock.startedAt(currentId, CoverArt.key(artist, s)) else 0L
         val playingId = if (isPlaying) currentId else null
         if (playingId != lastPlayingId) {
             lastPlayingId = playingId
