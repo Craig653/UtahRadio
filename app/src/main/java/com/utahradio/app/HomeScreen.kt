@@ -1,5 +1,6 @@
 package com.utahradio.app
 
+import android.content.Intent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -22,23 +23,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,7 +52,6 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import java.text.DateFormat
 import java.util.Date
-import kotlinx.coroutines.delay
 
 @Composable
 fun HomeScreen(
@@ -65,13 +62,15 @@ fun HomeScreen(
     onClearHistory: () -> Unit,
     onAddStation: () -> Unit,
     onFindSimilar: (Station) -> Unit,
+    onOpenPlayer: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     var editing by remember { mutableStateOf<Station?>(null) }
 
     fun tap(station: Station) {
         val p = player ?: return
         if ((ui.currentId == station.id || ui.requestedId == station.id) && ui.isActive) {
-            p.stop(); ui.requestedId = null
+            stopPlayback(p, ui)
         } else {
             playStation(p, ui, station)
         }
@@ -86,23 +85,28 @@ fun HomeScreen(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Utah Radio", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Utah Radio", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = TextMain)
                         Text(
                             "${stations.size} station${if (stations.size == 1) "" else "s"}",
                             color = TextDim, fontSize = 14.sp,
                         )
                     }
                     IconButton(onClick = onAddStation) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add station", tint = Color.White)
+                        Icon(Icons.Filled.Add, contentDescription = "Add station", tint = TextMain)
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = TextMain)
                     }
                 }
             }
 
-            item { NowPlayingCard(player, ui, stations, onFindSimilar) }
+            item { CrashBanner() }
+
+            item { NowPlayingCard(player, ui, stations, onFindSimilar, onOpenPlayer) }
 
             item {
                 Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.Bottom) {
-                    Text("My stations", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                    Text("My stations", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f))
                     Text("Hold a station to edit", color = TextFaint, fontSize = 12.sp)
                 }
@@ -132,7 +136,7 @@ fun HomeScreen(
 
             item {
                 Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Recently played", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                    Text("Recently played", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f))
                     if (history.isNotEmpty()) {
                         TextButton(onClick = onClearHistory) { Text("Clear", color = TextDim) }
@@ -166,26 +170,54 @@ fun HomeScreen(
     }
 }
 
+/** Shown once after the app closed unexpectedly: offers to share the report. */
 @Composable
-private fun NowPlayingCard(player: Player?, ui: PlayerUi, stations: List<Station>, onFindSimilar: (Station) -> Unit) {
+private fun CrashBanner() {
     val context = LocalContext.current
-    // Ticks every second for the clock and the elapsed time.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) { now = System.currentTimeMillis(); delay(1000L - now % 1000L) }
+    var report by remember { mutableStateOf(CrashLog.pending(context)) }
+    val text = report ?: return
+    Surface(shape = RoundedCornerShape(16.dp), color = Danger.copy(alpha = 0.15f), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Utah Radio closed unexpectedly last time", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text("Sending the report helps get it fixed. You choose where it goes (email, text…).",
+                color = TextDim, fontSize = 13.sp)
+            Row {
+                TextButton(onClick = {
+                    shareText(context, "Utah Radio problem report", text)
+                    CrashLog.clear(context); report = null
+                }) { Text("Send report", color = Accent) }
+                TextButton(onClick = { CrashLog.clear(context); report = null }) { Text("Dismiss", color = TextDim) }
+            }
+        }
     }
-    val station = stations.firstOrNull { it.id == (ui.requestedId ?: ui.currentId) }
-    val connecting = ui.requestedId != null || ui.isBuffering
-    val active = ui.isActive
+}
 
-    fun neighbor(delta: Int): Station? {
-        if (stations.isEmpty()) return null
-        val i = stations.indexOfFirst { it.id == station?.id }
-        val next = if (i < 0) 0 else Math.floorMod(i + delta, stations.size)
-        return stations[next]
-    }
+fun shareText(context: android.content.Context, subject: String, text: String) {
+    val send = Intent(Intent.ACTION_SEND)
+        .setType("text/plain")
+        .putExtra(Intent.EXTRA_SUBJECT, subject)
+        .putExtra(Intent.EXTRA_TEXT, text)
+    context.startActivity(Intent.createChooser(send, subject).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}
 
-    Surface(shape = RoundedCornerShape(24.dp), color = CardColor, modifier = Modifier.fillMaxWidth()) {
+@Composable
+private fun NowPlayingCard(
+    player: Player?,
+    ui: PlayerUi,
+    stations: List<Station>,
+    onFindSimilar: (Station) -> Unit,
+    onOpenPlayer: () -> Unit,
+) {
+    val now = rememberNow()
+    val station = shownStation(ui, stations)
+    val status = playerStatus(ui, station)
+    val isCurrent = station != null && station.id == ui.currentId
+
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = CardColor,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).clickable(enabled = station != null, onClick = onOpenPlayer),
+    ) {
         Column(Modifier.padding(18.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("NOW PLAYING", color = TextFaint, fontSize = 11.sp, fontWeight = FontWeight.Bold,
@@ -196,60 +228,28 @@ private fun NowPlayingCard(player: Player?, ui: PlayerUi, stations: List<Station
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (station != null && ui.coverKey != null) {
-                    // Album cover, with the station's logo tucked in the corner.
-                    Box(Modifier.size(112.dp)) {
-                        CoverImage(ui.coverKey, Modifier.size(112.dp), corner = 18.dp) {
-                            StationArt(station, size = 112.dp, corner = 18.dp)
-                        }
-                        StationArt(
-                            station,
-                            modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-                            size = 30.dp, corner = 8.dp,
-                        )
-                    }
-                } else if (station != null) {
-                    StationArt(station, size = 112.dp, corner = 18.dp)
-                } else {
-                    Box(Modifier.size(112.dp).clip(RoundedCornerShape(18.dp)).background(CardColor2),
-                        contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.PlayArrow, null, tint = TextFaint, modifier = Modifier.size(48.dp))
-                    }
-                }
+                NowArt(station, if (isCurrent) ui.coverKey else null, 112)
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
-                    StatusPill(
-                        when {
-                            station == null -> "NOTHING PLAYING"
-                            connecting -> "CONNECTING…"
-                            ui.isPlaying -> "● LIVE"
-                            ui.hasError -> "CAN'T CONNECT"
-                            else -> "STOPPED"
-                        },
-                        color = when {
-                            ui.hasError && !connecting -> Danger
-                            ui.isPlaying -> Accent
-                            else -> TextDim
-                        },
-                    )
+                    StatusPill(status)
                     Spacer(Modifier.height(6.dp))
                     if (station == null) {
-                        Text("Pick a station", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        Text("Pick a station", color = TextMain, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         Text("Tap one below to start listening", color = TextDim, fontSize = 14.sp)
                     } else {
                         Text(station.name, color = Accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            ui.song ?: "Live radio",
-                            color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold,
+                            (if (isCurrent) ui.song else null) ?: "Live radio",
+                            color = TextMain, fontSize = 21.sp, fontWeight = FontWeight.Bold,
                             maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 25.sp,
                         )
                         Text(
-                            ui.artist ?: station.subtitle,
+                            (if (isCurrent) ui.artist else null) ?: station.subtitle,
                             color = TextDim, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                         val since = if (ui.song != null) ui.songStartedAt else ui.listeningSince
-                        if (ui.isPlaying && since > 0) {
+                        if (isCurrent && ui.isPlaying && since > 0) {
                             Text(
                                 (if (ui.song != null) "Song playing " else "Listening ") + formatElapsed(now - since),
                                 color = TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp),
@@ -258,103 +258,52 @@ private fun NowPlayingCard(player: Player?, ui: PlayerUi, stations: List<Station
                     }
                 }
             }
-            if (ui.hasError && !connecting && station != null) {
-                Text(
-                    "Check your internet connection. If this keeps happening, hold the station below and paste its stream address.",
-                    color = Danger, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp),
-                )
+            status.message?.let {
+                Text(it, color = status.color, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
             }
             Spacer(Modifier.height(14.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RoundButton(size = 52, color = CardColor2, enabled = player != null && stations.size > 1, onClick = {
-                    val p = player ?: return@RoundButton
-                    neighbor(-1)?.let { playStation(p, ui, it) }
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous station", tint = Color.White, modifier = Modifier.size(32.dp))
-                }
-                RoundButton(size = 76, color = Accent, enabled = player != null, onClick = {
-                    val p = player ?: return@RoundButton
-                    if (active) {
-                        p.stop(); ui.requestedId = null
-                    } else {
-                        val lastId = StationPrefs(context).lastStationId
-                        val s = station ?: stations.firstOrNull { it.id == lastId } ?: stations.firstOrNull()
-                        s?.let { playStation(p, ui, it) }
-                    }
-                }) {
-                    when {
-                        connecting -> CircularProgressIndicator(Modifier.size(30.dp), color = Bg1, strokeWidth = 3.dp)
-                        active -> Box(Modifier.size(24.dp).background(Bg1, RoundedCornerShape(4.dp)))
-                        else -> Icon(Icons.Filled.PlayArrow, "Play", tint = Bg1, modifier = Modifier.size(44.dp))
-                    }
-                }
-                RoundButton(size = 52, color = CardColor2, enabled = player != null && stations.size > 1, onClick = {
-                    val p = player ?: return@RoundButton
-                    neighbor(1)?.let { playStation(p, ui, it) }
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next station", tint = Color.White, modifier = Modifier.size(32.dp))
-                }
-            }
+            PlayControls(player, ui, stations, station)
             if (station != null) {
-                TextButton(onClick = { onFindSimilar(station) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                    Text(
-                        if (station.genreLabel.isNotBlank()) "More like this · ${station.genreLabel}" else "Find similar stations",
-                        color = TextDim, fontSize = 13.sp,
-                    )
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SleepButton()
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { onFindSimilar(station) }) {
+                        Text("More like this", color = TextDim, fontSize = 13.sp)
+                    }
+                    if (StationRepository.contains(LocalContext.current, station.id)) FavoriteButton(station)
                 }
             }
         }
     }
 }
 
-private fun formatElapsed(ms: Long): String {
-    val total = (ms / 1000).coerceAtLeast(0)
-    val h = total / 3600
-    val m = (total % 3600) / 60
-    val sec = total % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
-}
-
+/** Album cover (with the station logo in the corner), or the station's picture. */
 @Composable
-private fun StatusPill(text: String, color: Color) {
-    Text(
-        text,
-        color = color,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 1.sp,
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = 0.14f))
-            .padding(horizontal = 9.dp, vertical = 3.dp),
-    )
-}
-
-@Composable
-private fun RoundButton(
-    size: Int,
-    color: Color,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        Modifier
-            .size(size.dp)
-            .clip(CircleShape)
-            .background(if (enabled) color else color.copy(alpha = 0.4f))
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { content() }
+fun NowArt(station: Station?, coverKey: String?, sizeDp: Int) {
+    val size = sizeDp.dp
+    when {
+        station != null && coverKey != null -> Box(Modifier.size(size)) {
+            CoverImage(coverKey, Modifier.size(size), corner = 18.dp) {
+                StationArt(station, size = size, corner = 18.dp)
+            }
+            StationArt(
+                station,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+                size = (sizeDp * 0.27f).dp, corner = 8.dp,
+            )
+        }
+        station != null -> StationArt(station, size = size, corner = 18.dp)
+        else -> Box(
+            Modifier.size(size).clip(RoundedCornerShape(18.dp)).background(CardColor2),
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Filled.PlayArrow, null, tint = TextFaint, modifier = Modifier.size(48.dp)) }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StationTile(station: Station, playing: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val context = LocalContext.current
     val border by animateColorAsState(if (playing) Accent else Color.Transparent, label = "border")
     Surface(
         shape = RoundedCornerShape(18.dp),
@@ -366,9 +315,29 @@ private fun StationTile(station: Station, playing: Boolean, onClick: () -> Unit,
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Column(Modifier.padding(10.dp)) {
-            StationArt(station, modifier = Modifier.fillMaxWidth().aspectRatio(1f), corner = 12.dp)
+            Box {
+                StationArt(station, modifier = Modifier.fillMaxWidth().aspectRatio(1f), corner = 12.dp)
+                // Heart: tap to make this a favorite (favorites stay at the top).
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.Black.copy(alpha = 0.35f))
+                        .clickable { StationRepository.toggleFavorite(context, station.id) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (station.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = if (station.favorite) "Remove from favorites" else "Add to favorites",
+                        tint = if (station.favorite) Accent else Color.White,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
-            Text(station.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+            Text(station.name, color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 when {
@@ -388,7 +357,7 @@ private fun AddTile(onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = Color.Transparent,
-        border = BorderStroke(2.dp, Color.White.copy(alpha = 0.18f)),
+        border = BorderStroke(2.dp, TextMain.copy(alpha = 0.18f)),
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
     ) {
         Column(Modifier.padding(10.dp)) {
@@ -396,7 +365,7 @@ private fun AddTile(onClick: () -> Unit) {
                 Icon(Icons.Filled.Add, null, tint = Accent, modifier = Modifier.size(48.dp))
             }
             Spacer(Modifier.height(8.dp))
-            Text("Add station", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Add station", color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Text("Nearby, genre or search", color = TextDim, fontSize = 13.sp)
         }
     }
@@ -412,7 +381,7 @@ private fun HistoryRow(song: PlayedSong) {
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(song.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            Text(song.title, color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 listOf(song.artist, song.station).filter { it.isNotBlank() }.joinToString(" · "),

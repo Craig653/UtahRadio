@@ -198,7 +198,7 @@ fun AddStationScreen(onBack: () -> Unit, similarTo: Station? = null) {
                 IconButton(onClick = {
                     if (mode != FindMode.Nearby() && similarTo == null) { mode = FindMode.Nearby(); query = "" } else onBack()
                 }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextMain)
                 }
                 Text(
                     when (val m = mode) {
@@ -206,7 +206,7 @@ fun AddStationScreen(onBack: () -> Unit, similarTo: Station? = null) {
                         is FindMode.Search -> "Search results"
                         else -> "Find stations"
                     },
-                    color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold,
+                    color = TextMain, fontSize = 22.sp, fontWeight = FontWeight.Bold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -253,7 +253,7 @@ fun AddStationScreen(onBack: () -> Unit, similarTo: Station? = null) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Filled.LocationOn, null, tint = Accent, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Near ${p.label}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                                Text("Near ${p.label}", color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.weight(1f))
                                 if (locating) {
                                     CircularProgressIndicator(Modifier.size(18.dp), color = Accent, strokeWidth = 2.dp)
@@ -351,7 +351,7 @@ private fun LocationCard(
 ) {
     Surface(shape = RoundedCornerShape(18.dp), color = CardColor, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Text("Stations near you", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("Stations near you", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Text(
                 "Use your approximate location to list local stations first. It stays on your phone and is only used for finding stations.",
                 color = TextDim, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
@@ -359,9 +359,9 @@ private fun LocationCard(
             Button(
                 onClick = onUseLocation,
                 enabled = !locating,
-                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Bg1),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
             ) {
-                if (locating) CircularProgressIndicator(Modifier.size(18.dp), color = Bg1, strokeWidth = 2.dp)
+                if (locating) CircularProgressIndicator(Modifier.size(18.dp), color = OnAccent, strokeWidth = 2.dp)
                 else Icon(Icons.Filled.LocationOn, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Use my location", fontWeight = FontWeight.Bold)
@@ -388,12 +388,12 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(50),
         color = if (selected) Accent else Color.Transparent,
-        border = BorderStroke(1.dp, if (selected) Accent else Color.White.copy(alpha = 0.25f)),
+        border = BorderStroke(1.dp, if (selected) Accent else TextMain.copy(alpha = 0.25f)),
         modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick),
     ) {
         Text(
             label,
-            color = if (selected) Bg1 else Color.White,
+            color = if (selected) OnAccent else TextMain,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
@@ -416,12 +416,12 @@ private fun ResultRow(
                     Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(CardColor2),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(ArtStore.shortLabel(d.name).take(3), color = Color.White, fontSize = 13.sp,
+                    Text(ArtStore.shortLabel(d.name).take(3), color = TextMain, fontSize = 13.sp,
                         fontWeight = FontWeight.Bold, maxLines = 1)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(d.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    Text(d.name, color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (d.genreLabel.isNotBlank()) {
                         Text(d.genreLabel, color = Accent, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -442,7 +442,7 @@ private fun ResultRow(
                     adding -> CircularProgressIndicator(Modifier.size(22.dp), color = Accent, strokeWidth = 2.dp)
                     else -> Button(
                         onClick = onAdd,
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Bg1),
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                     ) { Text("Add") }
                 }
@@ -462,7 +462,7 @@ private fun ResultRow(
 private fun ManualAdd(name: String, onName: (String) -> Unit, url: String, onUrl: (String) -> Unit, onAdd: () -> Unit) {
     Column {
         Spacer(Modifier.height(16.dp))
-        Text("Have a stream address?", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Have a stream address?", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Text(
             "If a station isn't listed, paste its stream link (often ends in .mp3, .aac, .m3u8 or .pls).",
             color = TextFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
@@ -484,7 +484,7 @@ private fun ManualAdd(name: String, onName: (String) -> Unit, url: String, onUrl
         Spacer(Modifier.height(10.dp))
         Button(
             onClick = onAdd,
-            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Bg1),
+            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
         ) { Text("Add station", fontWeight = FontWeight.Bold) }
         Text(
             "Station listings come from radio-browser.info, a free community directory.",

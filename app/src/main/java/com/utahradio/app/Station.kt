@@ -33,6 +33,8 @@ data class Station(
     val state: String = "",
     val lat: Double? = null,
     val lon: Double? = null,
+    /** Favorites stay at the top of your list. */
+    val favorite: Boolean = false,
 ) {
     val genreLabel: String get() = tags.take(2).joinToString(" · ") { it.toTitle() }
 

@@ -162,7 +162,7 @@ class ArtProvider : ContentProvider() {
             return ParcelFileDescriptor.open(cover, ParcelFileDescriptor.MODE_READ_ONLY)
         }
         val id = uri.lastPathSegment ?: throw FileNotFoundException()
-        val station = StationRepository.byId(ctx, id) ?: throw FileNotFoundException(id)
+        val station = findStation(ctx, id) ?: throw FileNotFoundException(id)
         val file = ArtStore.ensureFile(ctx, station)
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }

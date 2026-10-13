@@ -98,9 +98,56 @@ object StationRepository {
         set(list)
     }
 
+    fun toggleFavorite(context: Context, id: String) {
+        init(context)
+        set(_stations.value.map { if (it.id == id) it.copy(favorite = !it.favorite) else it })
+    }
+
     private fun set(list: List<Station>) {
-        _stations.value = list
-        save(list)
+        val sorted = list.sortedBy { !it.favorite } // favorites first, otherwise keep your order
+        _stations.value = sorted
+        save(sorted)
+    }
+
+    // ---------------------------------------------------------------- backup / restore
+
+    /** Everything needed to restore your stations on another phone. */
+    fun exportJson(context: Context): String {
+        init(context)
+        val prefs = StationPrefs(context)
+        val arr = JSONArray()
+        _stations.value.forEach { s ->
+            arr.put(toJson(s).apply { prefs.override(s.id)?.let { put("override", it) } })
+        }
+        return JSONObject()
+            .put("app", "Utah Radio")
+            .put("version", 1)
+            .put("exported", System.currentTimeMillis())
+            .put("stations", arr)
+            .toString(2)
+    }
+
+    /** Adds stations from a backup (ones you already have are kept). Returns how many were added. */
+    fun importJson(context: Context, text: String): Int {
+        init(context)
+        val root = JSONObject(text)
+        val arr = root.optJSONArray("stations") ?: throw IllegalArgumentException("Not a Utah Radio backup")
+        val prefs = StationPrefs(context)
+        var added = 0
+        val current = _stations.value.toMutableList()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val s = fromJson(o) ?: continue
+            o.optString("override").takeIf { it.isNotBlank() }?.let { prefs.setOverride(s.id, it) }
+            val existing = current.indexOfFirst { it.id == s.id }
+            if (existing >= 0) {
+                if (s.favorite && !current[existing].favorite) current[existing] = current[existing].copy(favorite = true)
+            } else {
+                current.add(s); added++
+            }
+        }
+        set(current)
+        return added
     }
 
     // ---------------------------------------------------------------- storage
@@ -129,6 +176,7 @@ object StationRepository {
         s.streamUrl?.let { put("streamUrl", it) }
         s.radioBrowserUuid?.let { put("uuid", it) }
         put("artKind", s.artKind)
+        put("favorite", s.favorite)
         if (!s.builtIn) {
             put("tags", JSONArray(s.tags))
             put("state", s.state)
@@ -144,6 +192,7 @@ object StationRepository {
             return base.copy(
                 name = o.optString("name").ifBlank { base.name },
                 subtitle = o.optString("subtitle", base.subtitle),
+                favorite = o.optBoolean("favorite"),
             )
         }
         val name = o.optString("name").ifBlank { return null }
@@ -159,6 +208,7 @@ object StationRepository {
             state = o.optString("state"),
             lat = if (o.has("lat")) o.optDouble("lat") else null,
             lon = if (o.has("lon")) o.optDouble("lon") else null,
+            favorite = o.optBoolean("favorite"),
         )
     }
 }

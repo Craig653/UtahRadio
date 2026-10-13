@@ -26,16 +26,50 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-val Accent = Color(0xFFFFB547)
-val Bg1 = Color(0xFF14121F)
-val Bg2 = Color(0xFF231B3A)
-val CardColor = Color(0xFF2A2440)
-val CardColor2 = Color(0xFF342C50)
-val Danger = Color(0xFFFF7A7A)
-val TextDim = Color.White.copy(alpha = 0.6f)
-val TextFaint = Color.White.copy(alpha = 0.42f)
+/** Colors for one theme. */
+data class Palette(
+    val dark: Boolean,
+    val accent: Color,
+    val onAccent: Color,
+    val bg1: Color,
+    val bg2: Color,
+    val card: Color,
+    val card2: Color,
+    val text: Color,
+    val danger: Color,
+)
 
-val BackgroundBrush = Brush.verticalGradient(listOf(Bg2, Bg1))
+val DarkPalette = Palette(
+    dark = true,
+    accent = Color(0xFFFFB547), onAccent = Color(0xFF14121F),
+    bg1 = Color(0xFF14121F), bg2 = Color(0xFF231B3A),
+    card = Color(0xFF2A2440), card2 = Color(0xFF342C50),
+    text = Color.White, danger = Color(0xFFFF7A7A),
+)
+
+val LightPalette = Palette(
+    dark = false,
+    accent = Color(0xFFE08E0B), onAccent = Color(0xFF1B1726),
+    bg1 = Color(0xFFF3EEF9), bg2 = Color(0xFFFBF8FE),
+    card = Color(0xFFFFFFFF), card2 = Color(0xFFEAE3F3),
+    text = Color(0xFF1B1726), danger = Color(0xFFC62828),
+)
+
+/** The palette in use (switched from Settings; the whole UI follows it). */
+var CurrentPalette by mutableStateOf(DarkPalette)
+
+val Accent: Color get() = CurrentPalette.accent
+val OnAccent: Color get() = CurrentPalette.onAccent
+val Bg1: Color get() = CurrentPalette.bg1
+val Bg2: Color get() = CurrentPalette.bg2
+val CardColor: Color get() = CurrentPalette.card
+val CardColor2: Color get() = CurrentPalette.card2
+val Danger: Color get() = CurrentPalette.danger
+val TextMain: Color get() = CurrentPalette.text
+val TextDim: Color get() = CurrentPalette.text.copy(alpha = 0.62f)
+val TextFaint: Color get() = CurrentPalette.text.copy(alpha = 0.45f)
+
+val BackgroundBrush: Brush get() = Brush.verticalGradient(listOf(Bg2, Bg1))
 
 /** The station's picture (built-in, logo, or generated tile). */
 @Composable

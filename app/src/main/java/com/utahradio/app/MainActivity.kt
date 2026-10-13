@@ -12,6 +12,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.activity.SystemBarStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -39,8 +48,32 @@ class MainActivity : ComponentActivity() {
         StationRepository.init(this)
         askForNotificationPermission()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Accent, surface = CardColor)) {
-                RadioApp(controller)
+            val systemDark = isSystemInDarkTheme()
+            val dark = when (AppSettings.theme) {
+                AppSettings.THEME_LIGHT -> false
+                AppSettings.THEME_SYSTEM -> systemDark
+                else -> true
+            }
+            val palette = if (dark) DarkPalette else LightPalette
+            SideEffect { CurrentPalette = palette }
+            LaunchedEffect(dark) {
+                val transparent = android.graphics.Color.TRANSPARENT
+                enableEdgeToEdge(
+                    statusBarStyle = if (dark) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent),
+                    navigationBarStyle = if (dark) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent),
+                )
+            }
+            val scheme = if (dark) {
+                darkColorScheme(primary = palette.accent, surface = palette.card, background = palette.bg1)
+            } else {
+                lightColorScheme(primary = palette.accent, surface = palette.card, background = palette.bg1)
+            }
+            val density = LocalDensity.current
+            val scaled = if (AppSettings.largeText) Density(density.density, density.fontScale * 1.18f) else density
+            CompositionLocalProvider(LocalDensity provides scaled) {
+                MaterialTheme(colorScheme = scheme) {
+                    RadioApp(controller)
+                }
             }
         }
     }
@@ -121,15 +154,16 @@ fun playStation(player: Player, ui: PlayerUi, station: Station) {
     player.play()
 }
 
-private enum class Screen { Home, Add }
+private enum class Screen { Home, Add, Player, Settings, Onboarding }
 
 @Composable
 private fun RadioApp(player: Player?) {
     val context = LocalContext.current
     val ui = remember { PlayerUi() }
     val stations by StationRepository.stations.collectAsState()
-    var screen by remember { mutableStateOf(Screen.Home) }
+    var screen by remember { mutableStateOf(if (AppSettings.onboarded) Screen.Home else Screen.Onboarding) }
     var similarTo by remember { mutableStateOf<Station?>(null) }
+    var autoplayDone by rememberSaveable { mutableStateOf(false) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -137,6 +171,17 @@ private fun RadioApp(player: Player?) {
         }
         player?.let { ui.read(it); it.addListener(listener) }
         onDispose { player?.removeListener(listener) }
+    }
+
+    // "Play when the app opens": start your last station once.
+    LaunchedEffect(player) {
+        val p = player ?: return@LaunchedEffect
+        if (autoplayDone) return@LaunchedEffect
+        autoplayDone = true
+        if (AppSettings.autoplayOnOpen && AppSettings.onboarded && !p.playWhenReady) {
+            val last = StationRepository.byId(context, StationPrefs(context).lastStationId) ?: stations.firstOrNull()
+            last?.let { playStation(p, ui, it) }
+        }
     }
 
     // Recently played songs (written by the player service).
@@ -150,7 +195,11 @@ private fun RadioApp(player: Player?) {
         onDispose { prefs.prefs.unregisterOnSharedPreferenceChangeListener(l) }
     }
 
+    val goHome = { screen = Screen.Home }
+    val findSimilar: (Station) -> Unit = { similarTo = it; screen = Screen.Add }
+
     when (screen) {
+        Screen.Onboarding -> OnboardingScreen(onDone = goHome)
         Screen.Home -> HomeScreen(
             player = player,
             ui = ui,
@@ -158,11 +207,21 @@ private fun RadioApp(player: Player?) {
             history = history,
             onClearHistory = { prefs.clearHistory() },
             onAddStation = { similarTo = null; screen = Screen.Add },
-            onFindSimilar = { similarTo = it; screen = Screen.Add },
+            onFindSimilar = findSimilar,
+            onOpenPlayer = { screen = Screen.Player },
+            onOpenSettings = { screen = Screen.Settings },
         )
         Screen.Add -> {
-            BackHandler { screen = Screen.Home }
-            AddStationScreen(onBack = { screen = Screen.Home }, similarTo = similarTo)
+            BackHandler(onBack = goHome)
+            AddStationScreen(onBack = goHome, similarTo = similarTo)
+        }
+        Screen.Player -> {
+            BackHandler(onBack = goHome)
+            FullPlayerScreen(player, ui, stations, onClose = goHome, onFindSimilar = findSimilar)
+        }
+        Screen.Settings -> {
+            BackHandler(onBack = goHome)
+            SettingsScreen(onBack = goHome, onClearHistory = { prefs.clearHistory() })
         }
     }
 }

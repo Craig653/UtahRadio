@@ -6,7 +6,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** A song heard on the radio. */
-data class PlayedSong(val title: String, val artist: String, val station: String, val time: Long)
+data class PlayedSong(
+    val title: String,
+    val artist: String,
+    val station: String,
+    val time: Long,
+    val stationId: String = "",
+)
 
 /** Small saved settings: custom stream addresses, last working address, last station, song history. */
 class StationPrefs(context: Context) {
@@ -37,7 +43,7 @@ class StationPrefs(context: Context) {
         val arr = JSONArray(prefs.getString(HISTORY, "[]"))
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
-            PlayedSong(o.optString("t"), o.optString("a"), o.optString("s"), o.optLong("w"))
+            PlayedSong(o.optString("t"), o.optString("a"), o.optString("s"), o.optLong("w"), o.optString("i"))
         }
     }.getOrDefault(emptyList())
 
@@ -48,7 +54,7 @@ class StationPrefs(context: Context) {
         val updated = (listOf(song) + list).take(10)
         val arr = JSONArray()
         updated.forEach {
-            arr.put(JSONObject().put("t", it.title).put("a", it.artist).put("s", it.station).put("w", it.time))
+            arr.put(JSONObject().put("t", it.title).put("a", it.artist).put("s", it.station).put("w", it.time).put("i", it.stationId))
         }
         prefs.edit().putString(HISTORY, arr.toString()).apply()
     }

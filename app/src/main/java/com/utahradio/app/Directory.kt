@@ -91,6 +91,10 @@ object Directory {
             .apply()
     }
 
+    fun clearPlace(context: Context) {
+        StationPrefs(context).prefs.edit().remove("place_state").remove("place_lat").remove("place_lon").apply()
+    }
+
     /** Uses the phone's approximate location (needs location permission). */
     @SuppressLint("MissingPermission")
     suspend fun locate(context: Context): Place? = withContext(Dispatchers.IO) {

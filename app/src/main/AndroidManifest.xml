@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
+        android:name=".App"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -52,6 +53,18 @@
             android:authorities="${applicationId}.art"
             android:exported="true"
             android:grantUriPermissions="true" />
+
+        <!-- Home-screen widget. -->
+        <receiver
+            android:name=".RadioWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
 
         <!-- Lets Bluetooth / car "play" buttons start the radio even when the app is closed. -->
         <receiver
