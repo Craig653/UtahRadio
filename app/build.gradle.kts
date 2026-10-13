@@ -12,8 +12,8 @@ android {
         applicationId = "com.utahradio.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.4.3"
+        versionCode = 9
+        versionName = "1.4.4"
     }
 
     // A fixed key kept in the project, so every new build installs as an update over the last one.

@@ -147,7 +147,7 @@ fun HomeScreen(
                     )
                 }
             } else {
-                items(history.take(20)) { HistoryRow(it) }
+                items(history.take(10)) { HistoryRow(it) }
             }
             item { Spacer(Modifier.height(24.dp)) }
         }

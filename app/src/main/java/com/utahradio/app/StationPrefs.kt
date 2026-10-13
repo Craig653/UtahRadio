@@ -45,7 +45,7 @@ class StationPrefs(context: Context) {
         val list = history()
         val last = list.firstOrNull()
         if (last != null && last.title == song.title && last.artist == song.artist && last.station == song.station) return
-        val updated = (listOf(song) + list).take(30)
+        val updated = (listOf(song) + list).take(10)
         val arr = JSONArray()
         updated.forEach {
             arr.put(JSONObject().put("t", it.title).put("a", it.artist).put("s", it.station).put("w", it.time))
