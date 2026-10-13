@@ -129,6 +129,7 @@ private fun RadioApp(player: Player?) {
     val ui = remember { PlayerUi() }
     val stations by StationRepository.stations.collectAsState()
     var screen by remember { mutableStateOf(Screen.Home) }
+    var similarTo by remember { mutableStateOf<Station?>(null) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -156,11 +157,12 @@ private fun RadioApp(player: Player?) {
             stations = stations,
             history = history,
             onClearHistory = { prefs.clearHistory() },
-            onAddStation = { screen = Screen.Add },
+            onAddStation = { similarTo = null; screen = Screen.Add },
+            onFindSimilar = { similarTo = it; screen = Screen.Add },
         )
         Screen.Add -> {
             BackHandler { screen = Screen.Home }
-            AddStationScreen(onBack = { screen = Screen.Home })
+            AddStationScreen(onBack = { screen = Screen.Home }, similarTo = similarTo)
         }
     }
 }

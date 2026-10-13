@@ -23,7 +23,12 @@ import androidx.compose.ui.unit.sp
 
 /** Rename, change the stream address, reorder or remove a station. */
 @Composable
-fun EditStationDialog(station: Station, onDismiss: () -> Unit, onStreamChanged: () -> Unit) {
+fun EditStationDialog(
+    station: Station,
+    onDismiss: () -> Unit,
+    onFindSimilar: () -> Unit,
+    onStreamChanged: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember { StationPrefs(context) }
     val stations by StationRepository.stations.collectAsState()
@@ -63,6 +68,7 @@ fun EditStationDialog(station: Station, onDismiss: () -> Unit, onStreamChanged: 
                 if (inUse != null) {
                     Text("Currently playing from: $inUse", fontSize = 11.sp, color = TextFaint)
                 }
+                TextButton(onClick = onFindSimilar) { Text("Find similar stations") }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(enabled = index > 0, onClick = { StationRepository.move(context, station.id, -1) }) {
                         Text("Move up")

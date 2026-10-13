@@ -48,6 +48,33 @@ object StationRepository {
         set(_stations.value + station)
     }
 
+    /** Adds a directory station (downloads its logo first; call from a coroutine). */
+    suspend fun addFromDirectory(context: Context, d: DirStation): Station {
+        val id = idFor(d)
+        byId(context, id)?.let { return it }
+        val gotLogo = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            ArtStore.downloadLogo(context, id, d.favicon)
+        }
+        val station = Station(
+            id = id,
+            name = d.name.take(40).trim(),
+            subtitle = listOf(d.state, d.countryCode.takeIf { it != "US" } ?: "").filter { it.isNotBlank() }
+                .joinToString(", ").ifBlank { d.country },
+            streamUrl = d.url,
+            radioBrowserUuid = d.uuid.ifBlank { null },
+            artKind = if (gotLogo) "logo" else "tile",
+            matchWords = listOf(d.name),
+            tags = d.tags,
+            state = d.state,
+            lat = d.lat,
+            lon = d.lon,
+        )
+        add(context, station)
+        return station
+    }
+
+    fun idFor(d: DirStation) = "rb-" + d.uuid.ifBlank { d.url.hashCode().toUInt().toString() }.lowercase()
+
     fun update(context: Context, station: Station) {
         init(context)
         set(_stations.value.map { if (it.id == station.id) station else it })
@@ -102,6 +129,12 @@ object StationRepository {
         s.streamUrl?.let { put("streamUrl", it) }
         s.radioBrowserUuid?.let { put("uuid", it) }
         put("artKind", s.artKind)
+        if (!s.builtIn) {
+            put("tags", JSONArray(s.tags))
+            put("state", s.state)
+            s.lat?.let { put("lat", it) }
+            s.lon?.let { put("lon", it) }
+        }
     }
 
     private fun fromJson(o: JSONObject): Station? {
@@ -122,6 +155,10 @@ object StationRepository {
             radioBrowserUuid = o.optString("uuid").ifBlank { null },
             artKind = o.optString("artKind").ifBlank { "tile" },
             matchWords = listOf(name),
+            tags = o.optJSONArray("tags")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList(),
+            state = o.optString("state"),
+            lat = if (o.has("lat")) o.optDouble("lat") else null,
+            lon = if (o.has("lon")) o.optDouble("lon") else null,
         )
     }
 }

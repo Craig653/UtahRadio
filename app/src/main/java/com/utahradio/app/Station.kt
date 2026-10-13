@@ -28,7 +28,14 @@ data class Station(
     val matchWords: List<String> = emptyList(),
     val tuneInId: String? = null,
     val builtIn: Boolean = false,
+    /** Genres from the directory, e.g. ["country", "classic country"]. */
+    val tags: List<String> = emptyList(),
+    val state: String = "",
+    val lat: Double? = null,
+    val lon: Double? = null,
 ) {
+    val genreLabel: String get() = tags.take(2).joinToString(" · ") { it.toTitle() }
+
     /** Does spoken/typed text (e.g. "play Q92") refer to this station? */
     fun matches(query: String): Boolean {
         val q = query.lowercase().replace("point", ".").replace(" ", "")
@@ -56,6 +63,8 @@ object BuiltInStations {
             matchWords = listOf("fm100", "fm 100", "ksfi", "100.3"),
             tuneInId = "s111316",
             builtIn = true,
+            tags = listOf("adult contemporary", "pop", "soft rock"),
+            state = "Utah", lat = 40.7608, lon = -111.8910,
         ),
         Station(
             id = "q92",
@@ -73,6 +82,8 @@ object BuiltInStations {
             matchWords = listOf("q92", "q 92", "kblq", "92.9", "q929"),
             tuneInId = "s31767",
             builtIn = true,
+            tags = listOf("adult contemporary", "pop", "hits"),
+            state = "Utah", lat = 41.7370, lon = -111.8338,
         ),
     )
 

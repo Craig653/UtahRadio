@@ -64,6 +64,7 @@ fun HomeScreen(
     history: List<PlayedSong>,
     onClearHistory: () -> Unit,
     onAddStation: () -> Unit,
+    onFindSimilar: (Station) -> Unit,
 ) {
     var editing by remember { mutableStateOf<Station?>(null) }
 
@@ -97,7 +98,7 @@ fun HomeScreen(
                 }
             }
 
-            item { NowPlayingCard(player, ui, stations) }
+            item { NowPlayingCard(player, ui, stations, onFindSimilar) }
 
             item {
                 Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.Bottom) {
@@ -156,6 +157,7 @@ fun HomeScreen(
         EditStationDialog(
             station = s,
             onDismiss = { editing = null },
+            onFindSimilar = { editing = null; onFindSimilar(s) },
             onStreamChanged = {
                 val p = player
                 if (p != null && ui.currentId == s.id && ui.isActive) playStation(p, ui, s)
@@ -165,7 +167,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun NowPlayingCard(player: Player?, ui: PlayerUi, stations: List<Station>) {
+private fun NowPlayingCard(player: Player?, ui: PlayerUi, stations: List<Station>, onFindSimilar: (Station) -> Unit) {
     val context = LocalContext.current
     // Ticks every second for the clock and the elapsed time.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -297,6 +299,14 @@ private fun NowPlayingCard(player: Player?, ui: PlayerUi, stations: List<Station
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next station", tint = Color.White, modifier = Modifier.size(32.dp))
                 }
             }
+            if (station != null) {
+                TextButton(onClick = { onFindSimilar(station) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text(
+                        if (station.genreLabel.isNotBlank()) "More like this · ${station.genreLabel}" else "Find similar stations",
+                        color = TextDim, fontSize = 13.sp,
+                    )
+                }
+            }
         }
     }
 }
@@ -361,7 +371,11 @@ private fun StationTile(station: Station, playing: Boolean, onClick: () -> Unit,
             Text(station.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                if (playing) "Playing" else station.subtitle.ifBlank { " " },
+                when {
+                    playing -> "Playing"
+                    station.genreLabel.isNotBlank() -> station.genreLabel
+                    else -> station.subtitle.ifBlank { " " }
+                },
                 color = if (playing) Accent else TextDim,
                 fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
@@ -383,7 +397,7 @@ private fun AddTile(onClick: () -> Unit) {
             }
             Spacer(Modifier.height(8.dp))
             Text("Add station", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text("Search or paste", color = TextDim, fontSize = 13.sp)
+            Text("Nearby, genre or search", color = TextDim, fontSize = 13.sp)
         }
     }
 }
