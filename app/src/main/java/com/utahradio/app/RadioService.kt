@@ -14,6 +14,7 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.metadata.icy.IcyInfo
@@ -88,6 +89,14 @@ class RadioService : MediaLibraryService() {
 
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(resolving))
+            // Never speed up or slow down to chase "live" — always normal speed.
+            .setLivePlaybackSpeedControl(
+                DefaultLivePlaybackSpeedControl.Builder()
+                    .setFallbackMinPlaybackSpeed(1f)
+                    .setFallbackMaxPlaybackSpeed(1f)
+                    .setMaxLiveOffsetErrorMsForUnitSpeed(Long.MAX_VALUE / 2)
+                    .build()
+            )
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -98,6 +107,7 @@ class RadioService : MediaLibraryService() {
             .setHandleAudioBecomingNoisy(true) // pause when headphones are unplugged
             .setWakeMode(C.WAKE_MODE_NETWORK) // keep streaming with the screen off
             .build()
+        player.setPlaybackSpeed(1f)
         player.repeatMode = Player.REPEAT_MODE_ALL // "next" on the last station wraps around
         player.addListener(PlayerEvents())
 
