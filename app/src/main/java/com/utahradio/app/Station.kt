@@ -136,9 +136,10 @@ fun Station.toMediaItem(context: Context, streamUrl: String?): MediaItem {
     val builder = MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(metadata(context))
-    // Ask the player to stay close to live (only matters for streams that allow rewinding).
+    // Always play at normal speed. (By default the player speeds up slightly to catch up to
+    // live, which you can hear.) Jumping to live is done with a skip instead — see goLive().
     builder.setLiveConfiguration(
-        MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(6_000).setMaxOffsetMs(15_000).build()
+        MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build()
     )
     if (streamUrl != null) {
         builder.setUri(streamUrl)
