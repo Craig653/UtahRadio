@@ -59,6 +59,10 @@ fun EditStationDialog(station: Station, onDismiss: () -> Unit, onStreamChanged: 
                 if (station.builtIn) {
                     Text("Leave blank and the app finds this station's stream by itself.", fontSize = 12.sp, color = TextDim)
                 }
+                val inUse = prefs.cached(station.id) ?: station.streamUrl
+                if (inUse != null) {
+                    Text("Currently playing from: $inUse", fontSize = 11.sp, color = TextFaint)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton(enabled = index > 0, onClick = { StationRepository.move(context, station.id, -1) }) {
                         Text("Move up")

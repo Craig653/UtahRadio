@@ -45,8 +45,12 @@ class RadioService : MediaLibraryService() {
 
     companion object {
         private const val ROOT_ID = "root"
-        /** After this long paused, resuming jumps back to live instead of playing stale audio. */
-        private const val STALE_PAUSE_MS = 20_000L
+        /** After even a short pause, resuming jumps back to live instead of playing old audio. */
+        private const val STALE_PAUSE_MS = 3_000L
+        /** How far behind "now" we allow before jumping forward to live. */
+        private const val MAX_LIVE_OFFSET_MS = 15_000L
+        /** Where we sit when jumping to live (a little room so it doesn't stutter). */
+        private const val LIVE_EDGE_MS = 6_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -55,6 +59,8 @@ class RadioService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
     private var retriedStationId: String? = null
     private var pausedAt = 0L
+    /** Set whenever a station (re)starts; the first time it's ready we make sure it's at live. */
+    private var checkLive = true
 
     override fun onCreate() {
         super.onCreate()
@@ -131,10 +137,6 @@ class RadioService : MediaLibraryService() {
     // ------------------------------------------------------------------ player events
 
     private inner class PlayerEvents : Player.Listener {
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            mediaItem?.mediaId?.let { prefs.lastStationId = it }
-        }
-
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) retriedStationId = null
         }
@@ -145,7 +147,21 @@ class RadioService : MediaLibraryService() {
             } else if (pausedAt != 0L && SystemClock.elapsedRealtime() - pausedAt > STALE_PAUSE_MS) {
                 // Live radio: reconnect so you hear what's on now, not what was buffered.
                 pausedAt = 0L
+                checkLive = true
                 player.seekToDefaultPosition()
+            }
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            mediaItem?.mediaId?.let { prefs.lastStationId = it }
+            checkLive = true
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_IDLE) checkLive = true
+            if (playbackState == Player.STATE_READY && checkLive) {
+                checkLive = false
+                goLive()
             }
         }
 
@@ -182,6 +198,20 @@ class RadioService : MediaLibraryService() {
                 player.prepare()
                 player.play()
             }
+        }
+    }
+
+    /**
+     * Some stations' streams start you at the beginning of the current song (or minutes back).
+     * Skip ahead to "now" whenever we're noticeably behind.
+     */
+    private fun goLive() {
+        if (!player.isCurrentMediaItemLive || !player.isCurrentMediaItemSeekable) return
+        val offset = player.currentLiveOffset
+        val duration = player.duration
+        if (duration == C.TIME_UNSET || duration <= 0) return
+        if (offset == C.TIME_UNSET || offset > MAX_LIVE_OFFSET_MS) {
+            player.seekTo(maxOf(0L, duration - LIVE_EDGE_MS))
         }
     }
 

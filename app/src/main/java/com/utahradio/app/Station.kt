@@ -125,6 +125,10 @@ fun Station.toMediaItem(context: Context, streamUrl: String?): MediaItem {
     val builder = MediaItem.Builder()
         .setMediaId(id)
         .setMediaMetadata(metadata(context))
+    // Ask the player to stay close to live (only matters for streams that allow rewinding).
+    builder.setLiveConfiguration(
+        MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(6_000).setMaxOffsetMs(15_000).build()
+    )
     if (streamUrl != null) {
         builder.setUri(streamUrl)
         if (streamUrl.lowercase().substringBefore('?').endsWith(".m3u8")) {
