@@ -126,12 +126,12 @@ object Directory {
         val found = LinkedHashMap<String, DirStation>()
         // Stations with a map location in the country (we measure the distance ourselves)…
         if (place.lat != null) {
-            query("search?countrycode=${place.countryCode}&has_geo_info=true$tag&hidebroken=true&order=clickcount&reverse=true&limit=4000")
+            query("stations/search?countrycode=${place.countryCode}&has_geo_info=true$tag&hidebroken=true&order=clickcount&reverse=true&limit=4000")
                 .forEach { found[it.uuid] = it }
         }
         // …plus stations listed in your state without a map location.
         place.state?.let { st ->
-            query("search?countrycode=${place.countryCode}&state=${enc(st)}$tag&hidebroken=true&order=clickcount&reverse=true&limit=600")
+            query("stations/search?countrycode=${place.countryCode}&state=${enc(st)}$tag&hidebroken=true&order=clickcount&reverse=true&limit=600")
                 .forEach { found.putIfAbsent(it.uuid, it) }
         }
         rank(found.values.toList(), place).filter { s ->
@@ -142,7 +142,7 @@ object Directory {
 
     /** Search by name / call letters; nearby matches come first. */
     suspend fun search(text: String, place: Place?): List<DirStation> = withContext(Dispatchers.IO) {
-        rank(query("search?name=${enc(text.trim())}&hidebroken=true&order=clickcount&reverse=true&limit=150"), place)
+        rank(query("stations/search?name=${enc(text.trim())}&hidebroken=true&order=clickcount&reverse=true&limit=150"), place)
     }
 
     /** Stations playing the same kind of music, local ones first. */
@@ -153,7 +153,7 @@ object Directory {
             val found = LinkedHashMap<String, DirStation>()
             for (t in mainTags) {
                 val cc = place?.countryCode ?: "US"
-                query("search?tag=${enc(t)}&countrycode=$cc&hidebroken=true&order=clickcount&reverse=true&limit=800")
+                query("stations/search?tag=${enc(t)}&countrycode=$cc&hidebroken=true&order=clickcount&reverse=true&limit=800")
                     .forEach { found.putIfAbsent(it.uuid, it) }
             }
             val wanted = tags.map { it.lowercase() }.toSet()
