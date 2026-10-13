@@ -19,7 +19,7 @@ import java.net.URLEncoder
  */
 object StreamResolver {
     private const val TAG = "StreamResolver"
-    private const val USER_AGENT = "UtahRadio/1.0 (Android)"
+    private const val USER_AGENT = "UtahRadio/1.1 (Android)"
     private const val TIMEOUT_MS = 6000
 
     private val DIRECTORY_SERVERS = listOf(
@@ -50,6 +50,20 @@ object StreamResolver {
         withContext(Dispatchers.IO) {
             val prefs = StationPrefs(context)
             prefs.override(station.id)?.let { return@withContext expandPlaylist(it) ?: it }
+
+            // Stations you added: use their saved address (look it up again after an error).
+            if (station.streamUrl != null) {
+                if (!useCache && station.radioBrowserUuid != null) {
+                    runCatching { fromDirectoryUuid(station.radioBrowserUuid) }.getOrNull()?.let { fresh ->
+                        if (fresh != station.streamUrl) {
+                            StationRepository.update(context, station.copy(streamUrl = fresh))
+                        }
+                        return@withContext fresh
+                    }
+                }
+                return@withContext expandPlaylist(station.streamUrl) ?: station.streamUrl
+            }
+
             if (useCache) prefs.cached(station.id)?.let { return@withContext it }
 
             val found = runCatching { fromWebsite(station) }.getOrNull()
@@ -59,6 +73,64 @@ object StreamResolver {
             if (found != null) prefs.setCached(station.id, found)
             found
         }
+
+    /** An address we already know without going online (null if a lookup is needed). */
+    fun knownUrl(context: Context, station: Station): String? {
+        val prefs = StationPrefs(context)
+        val url = prefs.override(station.id) ?: station.streamUrl ?: prefs.cached(station.id) ?: return null
+        val path = url.lowercase().substringBefore('?')
+        return if (path.endsWith(".pls") || path.endsWith(".m3u")) null else url
+    }
+
+    // ---------------------------------------------------------------- directory search (Add station)
+
+    data class DirectoryStation(
+        val uuid: String,
+        val name: String,
+        val url: String,
+        val favicon: String,
+        val place: String,
+        val details: String,
+    )
+
+    /** Searches the free Radio Browser directory (radio-browser.info) by station name. */
+    suspend fun searchDirectory(query: String): List<DirectoryStation> = withContext(Dispatchers.IO) {
+        val q = URLEncoder.encode(query.trim(), "UTF-8")
+        for (server in DIRECTORY_SERVERS) {
+            val json = fetchText(
+                "$server/json/stations/search?name=$q&hidebroken=true&order=clickcount&reverse=true&limit=60"
+            ) ?: continue
+            val arr = runCatching { JSONArray(json) }.getOrNull() ?: continue
+            val seen = HashSet<String>()
+            return@withContext (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val url = o.optString("url_resolved").ifBlank { o.optString("url") }
+                val name = o.optString("name").trim()
+                if (url.isBlank() || name.isBlank() || !seen.add(name.lowercase() + url)) return@mapNotNull null
+                val place = listOf(o.optString("state"), o.optString("country"))
+                    .filter { it.isNotBlank() }.joinToString(", ")
+                val bitrate = o.optInt("bitrate")
+                val details = listOf(
+                    o.optString("codec").takeIf { it.isNotBlank() && it != "UNKNOWN" },
+                    if (bitrate > 0) "$bitrate kbps" else null,
+                    o.optString("tags").split(",").firstOrNull()?.takeIf { it.isNotBlank() },
+                ).filterNotNull().joinToString(" · ")
+                DirectoryStation(o.optString("stationuuid"), name, url, o.optString("favicon"), place, details)
+            }
+        }
+        emptyList()
+    }
+
+    private fun fromDirectoryUuid(uuid: String): String? {
+        for (server in DIRECTORY_SERVERS) {
+            val json = fetchText("$server/json/stations/byuuid/$uuid") ?: continue
+            val o = runCatching { JSONArray(json).optJSONObject(0) }.getOrNull() ?: return null
+            val url = o.optString("url_resolved").ifBlank { o.optString("url") }
+            if (url.isBlank()) return null
+            return expandPlaylist(url) ?: url
+        }
+        return null
+    }
 
     // ---------------------------------------------------------------- station website
 

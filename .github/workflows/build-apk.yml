@@ -17,7 +17,15 @@ jobs:
           distribution: temurin
           java-version: 17
       - name: Build
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon 2>&1 | tee build.log
+      - name: Show build errors
+        if: failure()
+        run: |
+          grep -E "^e: |error:|What went wrong|AAPT|Unresolved|> " build.log | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk UtahRadio.apk
       - uses: actions/upload-artifact@v4

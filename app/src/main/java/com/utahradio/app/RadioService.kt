@@ -2,14 +2,22 @@ package com.utahradio.app
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.Uri
 import android.os.SystemClock
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Metadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.metadata.icy.IcyInfo
+import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
@@ -21,11 +29,12 @@ import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import java.io.IOException
 
 /**
  * Plays the stations. The phone screen, the notification, Bluetooth buttons and Android Auto all
@@ -49,8 +58,29 @@ class RadioService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         prefs = StationPrefs(this)
+        StationRepository.init(this)
+
+        // "radio://station/<id>" addresses are looked up the moment a station starts loading,
+        // so every station can sit in the queue (car next/previous) without looking them all up first.
+        val http = DefaultHttpDataSource.Factory()
+            .setUserAgent("UtahRadio/1.1 (Android)")
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(10_000)
+            .setReadTimeoutMs(20_000)
+        val resolving = ResolvingDataSource.Factory(DefaultDataSource.Factory(this, http)) { spec ->
+            if (spec.uri.scheme == RADIO_SCHEME) {
+                val station = StationRepository.byId(this, spec.uri.lastPathSegment)
+                    ?: throw IOException("Unknown station")
+                val url = runBlocking { StreamResolver.resolve(this@RadioService, station) }
+                    ?: throw IOException("No stream found for ${station.name}")
+                spec.withUri(Uri.parse(url))
+            } else {
+                spec
+            }
+        }
 
         player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(resolving))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -71,6 +101,13 @@ class RadioService : MediaLibraryService() {
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(openApp)
             .build()
+
+        // When you add/remove/rename stations, refresh the list on the car screen.
+        scope.launch {
+            StationRepository.stations.drop(1).collect { list ->
+                session?.notifyChildrenChanged(ROOT_ID, list.size, null)
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -111,10 +148,27 @@ class RadioService : MediaLibraryService() {
             }
         }
 
+        /** Song info sent inside the stream ("Artist - Title"). */
+        override fun onMetadata(metadata: Metadata) {
+            var title: String? = null
+            var artist: String? = null
+            for (i in 0 until metadata.length()) {
+                when (val entry = metadata.get(i)) {
+                    is IcyInfo -> parseIcy(entry.title)?.let { (a, t) -> artist = a; title = t }
+                    is TextInformationFrame -> when (entry.id) {
+                        "TIT2" -> title = entry.values.firstOrNull()
+                        "TPE1" -> artist = entry.values.firstOrNull()
+                    }
+                    else -> Unit
+                }
+            }
+            showSong(title, artist)
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             // The stream address may have changed. Look it up again once and retry.
             val index = player.currentMediaItemIndex
-            val station = Stations.byId(player.currentMediaItem?.mediaId) ?: return
+            val station = StationRepository.byId(this@RadioService, player.currentMediaItem?.mediaId) ?: return
             if (retriedStationId == station.id) return
             retriedStationId = station.id
             prefs.setCached(station.id, null)
@@ -127,6 +181,26 @@ class RadioService : MediaLibraryService() {
                 player.prepare()
                 player.play()
             }
+        }
+    }
+
+    /** Puts the current song on the phone, notification and car screen, and in "Recently played". */
+    private fun showSong(rawTitle: String?, rawArtist: String?) {
+        val title = rawTitle?.trim()?.takeIf { it.isNotBlank() }
+        val artist = rawArtist?.trim()?.takeIf { it.isNotBlank() }
+        val item = player.currentMediaItem ?: return
+        val station = StationRepository.byId(this, item.mediaId) ?: return
+        // Some stations send their own name or slogan as the "song" — show that as no song.
+        val isReallySong = title != null && !title.equals(station.name, ignoreCase = true)
+        val current = item.mediaMetadata
+        val newTitle = if (isReallySong) title else null
+        val currentSong = if (current.extras?.getBoolean(EXTRA_SONG) == true) current.title?.toString() else null
+        if (newTitle == currentSong && (artist ?: "") == (if (currentSong != null) current.artist?.toString() ?: "" else "")) return
+
+        val updated = item.buildUpon().setMediaMetadata(station.metadata(this, newTitle, artist)).build()
+        player.replaceMediaItem(player.currentMediaItemIndex, updated) // same stream: keeps playing
+        if (newTitle != null) {
+            prefs.addToHistory(PlayedSong(newTitle, artist ?: "", station.name, System.currentTimeMillis()))
         }
     }
 
@@ -164,7 +238,7 @@ class RadioService : MediaLibraryService() {
             if (parentId != ROOT_ID) {
                 return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
             }
-            val items = Stations.all.map { it.toMediaItem(this@RadioService, null) }
+            val items = StationRepository.all(this@RadioService).map { it.toMediaItem(this@RadioService, null) }
             return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
         }
 
@@ -173,7 +247,7 @@ class RadioService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             mediaId: String,
         ): ListenableFuture<LibraryResult<MediaItem>> {
-            val station = Stations.byId(mediaId)
+            val station = StationRepository.byId(this@RadioService, mediaId)
                 ?: return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
             return Futures.immediateFuture(
                 LibraryResult.ofItem(station.toMediaItem(this@RadioService, null), null)
@@ -182,7 +256,7 @@ class RadioService : MediaLibraryService() {
 
         /**
          * Called when anything (phone screen, car screen, voice "play Q92") picks a station.
-         * We load every station into the queue so the car's next/previous buttons switch stations.
+         * Every station goes in the queue so the car's next/previous buttons switch stations.
          */
         override fun onSetMediaItems(
             mediaSession: MediaSession,
@@ -193,8 +267,7 @@ class RadioService : MediaLibraryService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
             val requested = mediaItems.getOrNull(if (startIndex == C.INDEX_UNSET) 0 else startIndex)
                 ?: mediaItems.firstOrNull()
-            val station = pickStation(requested)
-            queueStartingAt(station)
+            queueStartingAt(pickStation(requested))
         }
 
         override fun onAddMediaItems(
@@ -216,27 +289,45 @@ class RadioService : MediaLibraryService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
-            queueStartingAt(Stations.byId(prefs.lastStationId) ?: Stations.all.first())
+            val all = StationRepository.all(this@RadioService)
+            queueStartingAt(StationRepository.byId(this@RadioService, prefs.lastStationId) ?: all.first())
         }
     }
 
-    private fun pickStation(item: MediaItem?): Station =
-        Stations.byId(item?.mediaId)
-            ?: Stations.search(item?.requestMetadata?.searchQuery)
-            ?: Stations.byId(prefs.lastStationId)
-            ?: Stations.all.first()
+    private fun pickStation(item: MediaItem?): Station {
+        val all = StationRepository.all(this)
+        return StationRepository.byId(this, item?.mediaId)
+            ?: StationRepository.search(this, item?.requestMetadata?.searchQuery)
+            ?: StationRepository.byId(this, prefs.lastStationId)
+            ?: all.firstOrNull()
+            ?: BuiltInStations.all.first()
+    }
 
     private suspend fun queueStartingAt(station: Station): MediaSession.MediaItemsWithStartPosition {
-        val resolved = Stations.all.map { s ->
-            scope.async { s to StreamResolver.resolve(this@RadioService, s) }
-        }.awaitAll()
-        // Keep stations we found a stream for, plus the requested one (it will show an error if unreachable).
-        val queue = resolved
-            .filter { (s, url) -> url != null || s.id == station.id }
-            .map { (s, url) -> s.toMediaItem(this, url ?: UNREACHABLE) }
+        // Look up the chosen station now (so it starts right away); the rest are looked up when reached.
+        val chosenUrl = StreamResolver.resolve(this, station) ?: UNREACHABLE
+        val stations = StationRepository.all(this).ifEmpty { listOf(station) }
+        val queue = stations.map { s ->
+            if (s.id == station.id) {
+                s.toMediaItem(this, chosenUrl)
+            } else {
+                s.toMediaItem(this, StreamResolver.knownUrl(this, s) ?: s.lazyUri().toString())
+            }
+        }.let { if (it.none { item -> item.mediaId == station.id }) it + station.toMediaItem(this, chosenUrl) else it }
         val index = queue.indexOfFirst { it.mediaId == station.id }.coerceAtLeast(0)
         return MediaSession.MediaItemsWithStartPosition(queue, index, C.TIME_UNSET)
     }
+}
+
+/** "Artist - Title" (or iHeart-style text="Title") → (artist, title). */
+private fun parseIcy(raw: String?): Pair<String?, String>? {
+    val s = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    Regex("""text="([^"]*)"""").find(s)?.let { m ->
+        val artist = s.substringBefore(" - ", "").takeIf { it.isNotBlank() && !it.contains('=') }
+        return artist to m.groupValues[1]
+    }
+    val idx = s.indexOf(" - ")
+    return if (idx > 0) s.substring(0, idx).trim() to s.substring(idx + 3).trim() else null to s
 }
 
 /** Used when no stream could be found; makes the player report a clear "can't connect" error. */

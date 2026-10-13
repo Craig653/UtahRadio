@@ -44,6 +44,13 @@
             </intent-filter>
         </service>
 
+        <!-- Serves station pictures to Android Auto and the notification. -->
+        <provider
+            android:name=".ArtProvider"
+            android:authorities="${applicationId}.art"
+            android:exported="true"
+            android:grantUriPermissions="true" />
+
         <!-- Lets Bluetooth / car "play" buttons start the radio even when the app is closed. -->
         <receiver
             android:name="androidx.media3.session.MediaButtonReceiver"
