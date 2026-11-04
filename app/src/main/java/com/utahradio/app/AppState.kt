@@ -25,6 +25,12 @@ object AppSettings {
         private set
     var autoplayOnOpen by mutableStateOf(false)
         private set
+    /**
+     * Stations using Dynamic Ad Insertion often start you at a "clean" point (start of the current
+     * song or ad break) instead of mid-song. true = always skip ahead to live; false = allow the clean start.
+     */
+    var joinLive by mutableStateOf(true)
+        private set
     var onboarded by mutableStateOf(true)
         private set
 
@@ -35,6 +41,7 @@ object AppSettings {
         largeText = prefs.getBoolean("large_text", false)
         dataSaver = prefs.getBoolean("data_saver", false)
         autoplayOnOpen = prefs.getBoolean("autoplay", false)
+        joinLive = prefs.getBoolean("join_live", true)
         // People upgrading from an earlier version already have stations — skip first-run setup.
         val radio = context.applicationContext.getSharedPreferences("radio", Context.MODE_PRIVATE)
         onboarded = prefs.getBoolean("onboarded", radio.contains("stations_v2") || radio.contains("last_station"))
@@ -44,6 +51,7 @@ object AppSettings {
     fun updateLargeText(v: Boolean) { largeText = v; prefs.edit().putBoolean("large_text", v).apply() }
     fun updateDataSaver(v: Boolean) { dataSaver = v; prefs.edit().putBoolean("data_saver", v).apply() }
     fun updateAutoplay(v: Boolean) { autoplayOnOpen = v; prefs.edit().putBoolean("autoplay", v).apply() }
+    fun updateJoinLive(v: Boolean) { joinLive = v; prefs.edit().putBoolean("join_live", v).apply() }
     fun finishOnboarding() { onboarded = true; prefs.edit().putBoolean("onboarded", true).apply() }
 }
 

@@ -380,6 +380,8 @@ class RadioService : MediaLibraryService() {
      * Skip ahead to "now" whenever we're noticeably behind.
      */
     private fun goLive() {
+        // "Clean start" chosen in Settings: keep the stream's own starting point (song / ad break start).
+        if (!AppSettings.joinLive) return
         if (!player.isCurrentMediaItemLive || !player.isCurrentMediaItemSeekable) return
         val offset = player.currentLiveOffset
         val duration = player.duration

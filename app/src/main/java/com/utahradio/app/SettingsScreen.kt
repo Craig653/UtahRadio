@@ -93,6 +93,22 @@ fun SettingsScreen(onBack: () -> Unit, onClearHistory: () -> Unit) {
                 }
                 item {
                     Section("Playback") {
+                        Text("Stream start (Dynamic Ad Insertion)", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            "Some stations insert ads into their stream and can start you at a clean point — " +
+                                "the beginning of the current song or ad break — instead of mid-song.",
+                            color = TextDim, fontSize = 12.sp,
+                        )
+                        Row(Modifier.padding(top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Choice("Join live", AppSettings.joinLive) { AppSettings.updateJoinLive(true) }
+                            Choice("Clean start", !AppSettings.joinLive) { AppSettings.updateJoinLive(false) }
+                        }
+                        Text(
+                            if (AppSettings.joinLive) "You'll always hear what's on right now, even if the song is half over."
+                            else "Stations that support it start at the top of the song or break, a little behind live. " +
+                                "Other stations still join live.",
+                            color = TextFaint, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp),
+                        )
                         Toggle(
                             "Play when the app opens",
                             "Starts your last station automatically.",
