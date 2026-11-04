@@ -34,6 +34,43 @@ object AppSettings {
     var onboarded by mutableStateOf(true)
         private set
 
+    // ---- Sound
+    /** Evens out loudness between stations and ads. */
+    var leveling by mutableStateOf(false)
+        private set
+    /** 0 = Flat, 1 = Bass boost, 2 = Vocal/Talk, 3 = Car. */
+    var eqPreset by mutableStateOf(EQ_FLAT)
+        private set
+    var mono by mutableStateOf(false)
+        private set
+    /** -1 = all left … 0 = centered … 1 = all right. */
+    var balance by mutableStateOf(0f)
+        private set
+    var fadeStations by mutableStateOf(true)
+        private set
+
+    // ---- In the car
+    /** What happens when navigation directions speak: lower the radio, or pause it. */
+    var navPauses by mutableStateOf(false)
+        private set
+    var autoplayBluetooth by mutableStateOf(false)
+        private set
+    var pauseOnDisconnect by mutableStateOf(true)
+        private set
+
+    // ---- Connection
+    /** 0 = Balanced, 1 = Faster tuning, 2 = Smoother on bad signal. */
+    var bufferMode by mutableStateOf(BUFFER_BALANCED)
+        private set
+
+    const val EQ_FLAT = 0
+    const val EQ_BASS = 1
+    const val EQ_VOCAL = 2
+    const val EQ_CAR = 3
+    const val BUFFER_BALANCED = 0
+    const val BUFFER_FAST = 1
+    const val BUFFER_SMOOTH = 2
+
     fun init(context: Context) {
         if (::prefs.isInitialized) return
         prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -42,6 +79,15 @@ object AppSettings {
         dataSaver = prefs.getBoolean("data_saver", false)
         autoplayOnOpen = prefs.getBoolean("autoplay", false)
         joinLive = prefs.getBoolean("join_live", true)
+        leveling = prefs.getBoolean("leveling", false)
+        eqPreset = prefs.getInt("eq", EQ_FLAT)
+        mono = prefs.getBoolean("mono", false)
+        balance = prefs.getFloat("balance", 0f)
+        fadeStations = prefs.getBoolean("fade", true)
+        navPauses = prefs.getBoolean("nav_pauses", false)
+        autoplayBluetooth = prefs.getBoolean("autoplay_bt", false)
+        pauseOnDisconnect = prefs.getBoolean("pause_disconnect", true)
+        bufferMode = prefs.getInt("buffer", BUFFER_BALANCED)
         // People upgrading from an earlier version already have stations — skip first-run setup.
         val radio = context.applicationContext.getSharedPreferences("radio", Context.MODE_PRIVATE)
         onboarded = prefs.getBoolean("onboarded", radio.contains("stations_v2") || radio.contains("last_station"))
@@ -52,6 +98,15 @@ object AppSettings {
     fun updateDataSaver(v: Boolean) { dataSaver = v; prefs.edit().putBoolean("data_saver", v).apply() }
     fun updateAutoplay(v: Boolean) { autoplayOnOpen = v; prefs.edit().putBoolean("autoplay", v).apply() }
     fun updateJoinLive(v: Boolean) { joinLive = v; prefs.edit().putBoolean("join_live", v).apply() }
+    fun updateLeveling(v: Boolean) { leveling = v; prefs.edit().putBoolean("leveling", v).apply() }
+    fun updateEq(v: Int) { eqPreset = v; prefs.edit().putInt("eq", v).apply() }
+    fun updateMono(v: Boolean) { mono = v; prefs.edit().putBoolean("mono", v).apply() }
+    fun updateBalance(v: Float) { balance = v.coerceIn(-1f, 1f); prefs.edit().putFloat("balance", balance).apply() }
+    fun updateFade(v: Boolean) { fadeStations = v; prefs.edit().putBoolean("fade", v).apply() }
+    fun updateNavPauses(v: Boolean) { navPauses = v; prefs.edit().putBoolean("nav_pauses", v).apply() }
+    fun updateAutoplayBluetooth(v: Boolean) { autoplayBluetooth = v; prefs.edit().putBoolean("autoplay_bt", v).apply() }
+    fun updatePauseOnDisconnect(v: Boolean) { pauseOnDisconnect = v; prefs.edit().putBoolean("pause_disconnect", v).apply() }
+    fun updateBufferMode(v: Int) { bufferMode = v; prefs.edit().putInt("buffer", v).apply() }
     fun finishOnboarding() { onboarded = true; prefs.edit().putBoolean("onboarded", true).apply() }
 }
 

@@ -23,7 +23,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -124,6 +127,74 @@ fun SettingsScreen(onBack: () -> Unit, onClearHistory: () -> Unit) {
                         Text("Mobile data: ${DataUsage.format(mobile)}  ·  Wi-Fi: ${DataUsage.format(wifi)}",
                             color = TextDim, fontSize = 13.sp)
                         Text("Radio uses roughly 20–60 MB per hour.", color = TextFaint, fontSize = 12.sp)
+                    }
+                }
+                item {
+                    Section("Sound") {
+                        Toggle(
+                            "Volume leveling",
+                            "Evens out loudness between stations and ads, so you're not reaching for the volume.",
+                            AppSettings.leveling,
+                        ) { AppSettings.updateLeveling(it) }
+                        Text("Equalizer", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(top = 8.dp))
+                        Row(Modifier.padding(top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Choice("Flat", AppSettings.eqPreset == AppSettings.EQ_FLAT) { AppSettings.updateEq(AppSettings.EQ_FLAT) }
+                            Choice("Bass", AppSettings.eqPreset == AppSettings.EQ_BASS) { AppSettings.updateEq(AppSettings.EQ_BASS) }
+                            Choice("Vocal/Talk", AppSettings.eqPreset == AppSettings.EQ_VOCAL) { AppSettings.updateEq(AppSettings.EQ_VOCAL) }
+                            Choice("Car", AppSettings.eqPreset == AppSettings.EQ_CAR) { AppSettings.updateEq(AppSettings.EQ_CAR) }
+                        }
+                        Text(
+                            when (AppSettings.eqPreset) {
+                                AppSettings.EQ_BASS -> "More low end for music."
+                                AppSettings.EQ_VOCAL -> "Clearer voices for news, talk and sports."
+                                AppSettings.EQ_CAR -> "Lifts lows and highs that road noise covers up."
+                                else -> "The station's sound, unchanged."
+                            },
+                            color = TextFaint, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp),
+                        )
+                        Toggle("Mono audio", "Same sound in both ears — handy with one earbud.", AppSettings.mono) {
+                            AppSettings.updateMono(it)
+                        }
+                        BalanceSlider()
+                        Toggle(
+                            "Fade between stations",
+                            "A quick fade out and in when you switch, instead of a hard cut.",
+                            AppSettings.fadeStations,
+                        ) { AppSettings.updateFade(it) }
+                    }
+                }
+                item {
+                    Section("In the car") {
+                        Text("When navigation directions speak", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Row(Modifier.padding(top = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Choice("Lower volume", !AppSettings.navPauses) { AppSettings.updateNavPauses(false) }
+                            Choice("Pause", AppSettings.navPauses) { AppSettings.updateNavPauses(true) }
+                        }
+                        BluetoothAutoplayToggle()
+                        Toggle(
+                            "Pause when Bluetooth disconnects",
+                            "Stops the radio instead of switching to the phone speaker when you leave the car or take headphones off.",
+                            AppSettings.pauseOnDisconnect,
+                        ) { AppSettings.updatePauseOnDisconnect(it) }
+                    }
+                }
+                item {
+                    Section("Connection") {
+                        Text("Playback buffer", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Row(Modifier.padding(top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Choice("Faster", AppSettings.bufferMode == AppSettings.BUFFER_FAST) { AppSettings.updateBufferMode(AppSettings.BUFFER_FAST) }
+                            Choice("Balanced", AppSettings.bufferMode == AppSettings.BUFFER_BALANCED) { AppSettings.updateBufferMode(AppSettings.BUFFER_BALANCED) }
+                            Choice("Smoother", AppSettings.bufferMode == AppSettings.BUFFER_SMOOTH) { AppSettings.updateBufferMode(AppSettings.BUFFER_SMOOTH) }
+                        }
+                        Text(
+                            when (AppSettings.bufferMode) {
+                                AppSettings.BUFFER_FAST -> "Stations start and switch quicker, but drop sooner on weak signal."
+                                AppSettings.BUFFER_SMOOTH -> "Holds more audio, so it rides through canyons and dead spots. Slightly slower to start."
+                                else -> "A middle ground for most drives."
+                            },
+                            color = TextFaint, fontSize = 12.sp,
+                        )
                     }
                 }
                 item {
@@ -244,5 +315,59 @@ private fun Choice(label: String, selected: Boolean, onClick: () -> Unit) {
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
         )
+    }
+}
+
+/** Left/right balance. Saved when you let go of the slider (the radio re-tunes once). */
+@Composable
+private fun BalanceSlider() {
+    var value by remember { mutableStateOf(AppSettings.balance) }
+    Column(Modifier.padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Balance", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Text(
+                when {
+                    kotlin.math.abs(value) < 0.02f -> "Center"
+                    value < 0 -> "Left ${(-value * 100).toInt()}%"
+                    else -> "Right ${(value * 100).toInt()}%"
+                },
+                color = TextDim, fontSize = 13.sp,
+            )
+            if (kotlin.math.abs(value) >= 0.02f) {
+                TextButton(onClick = { value = 0f; AppSettings.updateBalance(0f) }) { Text("Center", color = Accent) }
+            }
+        }
+        Slider(
+            value = value,
+            onValueChange = { value = it },
+            onValueChangeFinished = { AppSettings.updateBalance(if (kotlin.math.abs(value) < 0.05f) 0f else value) },
+            valueRange = -1f..1f,
+            colors = SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent),
+        )
+    }
+}
+
+/** Needs Bluetooth permission (Android 12+), asked only when you turn it on. */
+@Composable
+private fun BluetoothAutoplayToggle() {
+    val context = LocalContext.current
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) AppSettings.updateAutoplayBluetooth(true)
+        else Toast.makeText(context, "Bluetooth permission is needed to notice when your car connects.", Toast.LENGTH_LONG).show()
+    }
+    Toggle(
+        "Auto-play when Bluetooth connects",
+        "Starts your last station when your car stereo or headphones connect.",
+        AppSettings.autoplayBluetooth,
+    ) { on ->
+        if (!on) {
+            AppSettings.updateAutoplayBluetooth(false)
+        } else if (android.os.Build.VERSION.SDK_INT >= 31 &&
+            context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            ask.launch(android.Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            AppSettings.updateAutoplayBluetooth(true)
+        }
     }
 }

@@ -9,6 +9,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Approximate location, only to find radio stations near you. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Equalizer and volume leveling. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- "Auto-play when Bluetooth connects" (only if you turn it on). -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:name=".App"
@@ -64,6 +69,15 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_info" />
+        </receiver>
+
+        <!-- Starts your last station when a car stereo / headphones connect (if turned on). -->
+        <receiver
+            android:name=".BluetoothReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+            </intent-filter>
         </receiver>
 
         <!-- Lets Bluetooth / car "play" buttons start the radio even when the app is closed. -->

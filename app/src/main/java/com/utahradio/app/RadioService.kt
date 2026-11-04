@@ -21,6 +21,13 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.metadata.MetadataRenderer
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -56,6 +63,9 @@ import java.io.IOException
 class RadioService : MediaLibraryService() {
 
     companion object {
+        /** True while audio is playing (used by Bluetooth auto-play to avoid restarting). */
+        @Volatile var isPlaying = false
+
         private const val ROOT_ID = "root"
         private const val MY_ID = "my"
         private const val RECENT_ID = "recent"
@@ -81,6 +91,10 @@ class RadioService : MediaLibraryService() {
     private var pausedAt = 0L
     /** Set whenever a station (re)starts; the first time it's ready we make sure it's at live. */
     private var checkLive = true
+
+    private lateinit var mediaSourceFactory: DefaultMediaSourceFactory
+    private val effects = AudioEffects()
+    private var volumeJob: Job? = null
 
     private var retryJob: Job? = null
     private var retryAttempt = 0
@@ -125,31 +139,8 @@ class RadioService : MediaLibraryService() {
             }
         }
 
-        trackSelector = DefaultTrackSelector(this)
-        player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(resolving))
-            .setTrackSelector(trackSelector)
-            // Never speed up or slow down to chase "live" — always normal speed.
-            .setLivePlaybackSpeedControl(
-                DefaultLivePlaybackSpeedControl.Builder()
-                    .setFallbackMinPlaybackSpeed(1f)
-                    .setFallbackMaxPlaybackSpeed(1f)
-                    .setMaxLiveOffsetErrorMsForUnitSpeed(Long.MAX_VALUE / 2)
-                    .build()
-            )
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build(),
-                /* handleAudioFocus = */ true, // pauses for navigation prompts / phone calls
-            )
-            .setHandleAudioBecomingNoisy(true) // pause when headphones are unplugged
-            .setWakeMode(C.WAKE_MODE_NETWORK) // keep streaming with the screen off
-            .build()
-        player.setPlaybackSpeed(1f)
-        player.repeatMode = Player.REPEAT_MODE_ALL // "next" on the last station wraps around
-        player.addListener(PlayerEvents())
+        mediaSourceFactory = DefaultMediaSourceFactory(resolving)
+        player = buildPlayer()
 
         val openApp = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
@@ -180,6 +171,20 @@ class RadioService : MediaLibraryService() {
                         .build()
                 }
         }
+        // Audio settings that apply instantly.
+        scope.launch { snapshotFlow { AppSettings.eqPreset to AppSettings.leveling }.drop(1).collect { effects.apply() } }
+        scope.launch {
+            snapshotFlow { AppSettings.navPauses }.drop(1).collect { player.setAudioAttributes(audioAttributes(), true) }
+        }
+        scope.launch {
+            snapshotFlow { AppSettings.pauseOnDisconnect }.drop(1).collect { player.setHandleAudioBecomingNoisy(it) }
+        }
+        // These need a fresh player (it re-tunes automatically).
+        scope.launch {
+            snapshotFlow { Triple(AppSettings.bufferMode, AppSettings.mono, AppSettings.balance) }
+                .drop(1).collect { rebuildPlayer() }
+        }
+
         // Sleep timer.
         scope.launch {
             SleepTimer.state.collect { st ->
@@ -197,6 +202,90 @@ class RadioService : MediaLibraryService() {
         }
     }
 
+    /**
+     * Builds the player with the current audio settings (buffer size, mono/balance, how navigation
+     * prompts are handled, pausing when Bluetooth disconnects).
+     */
+    private fun buildPlayer(): ExoPlayer {
+        trackSelector = DefaultTrackSelector(this)
+        val (minBuf, maxBuf, startBuf, rebufferBuf) = when (AppSettings.bufferMode) {
+            AppSettings.BUFFER_FAST -> listOf(8_000, 20_000, 800, 2_000)
+            AppSettings.BUFFER_SMOOTH -> listOf(40_000, 120_000, 3_000, 8_000)
+            else -> listOf(15_000, 50_000, 1_500, 4_000)
+        }
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(minBuf, maxBuf, startBuf, rebufferBuf)
+            .build()
+        // Audio pipeline with optional mono / balance mixing. Metadata renderer = song info.
+        val renderers = RenderersFactory { handler, _, audioListener, _, metadataOutput ->
+            val sink = DefaultAudioSink.Builder(this)
+                .setAudioProcessors(AudioEffects.channelProcessors())
+                .build()
+            arrayOf<Renderer>(
+                MediaCodecAudioRenderer(this, MediaCodecSelector.DEFAULT, handler, audioListener, sink),
+                MetadataRenderer(metadataOutput, handler.looper),
+            )
+        }
+        val p = ExoPlayer.Builder(this, renderers)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setTrackSelector(trackSelector)
+            .setLoadControl(loadControl)
+            // Never speed up or slow down to chase "live" — always normal speed.
+            .setLivePlaybackSpeedControl(
+                DefaultLivePlaybackSpeedControl.Builder()
+                    .setFallbackMinPlaybackSpeed(1f)
+                    .setFallbackMaxPlaybackSpeed(1f)
+                    .setMaxLiveOffsetErrorMsForUnitSpeed(Long.MAX_VALUE / 2)
+                    .build()
+            )
+            .setAudioAttributes(audioAttributes(), /* handleAudioFocus = */ true)
+            .setHandleAudioBecomingNoisy(AppSettings.pauseOnDisconnect)
+            .setWakeMode(C.WAKE_MODE_NETWORK) // keep streaming with the screen off
+            .build()
+        p.setPlaybackSpeed(1f)
+        p.repeatMode = Player.REPEAT_MODE_ALL // "next" on the last station wraps around
+        p.addListener(PlayerEvents())
+        effects.attach(p.audioSessionId)
+        return p
+    }
+
+    /**
+     * Navigation prompts: "lower the radio" (music) or "pause the radio" (the player pauses for
+     * prompts when it's playing speech-type audio).
+     */
+    private fun audioAttributes() = AudioAttributes.Builder()
+        .setUsage(C.USAGE_MEDIA)
+        .setContentType(if (AppSettings.navPauses) C.AUDIO_CONTENT_TYPE_SPEECH else C.AUDIO_CONTENT_TYPE_MUSIC)
+        .build()
+
+    /** Swap in a new player (after a buffer / mono / balance change) and keep playing. */
+    private fun rebuildPlayer() {
+        val old = player
+        val items = (0 until old.mediaItemCount).map { old.getMediaItemAt(it) }
+        val index = old.currentMediaItemIndex
+        val wasPlaying = old.playWhenReady && old.playbackState != Player.STATE_IDLE
+        effects.release()
+        player = buildPlayer()
+        session?.player = StationSwitchingPlayer(player)
+        old.release()
+        if (items.isNotEmpty()) {
+            player.setMediaItems(items, index.coerceIn(0, items.size - 1), C.TIME_UNSET)
+            checkLive = true
+            if (wasPlaying) { player.prepare(); player.play() }
+        }
+    }
+
+    /** Smoothly changes the volume (station fades). */
+    private suspend fun rampVolume(to: Float, ms: Long) {
+        val from = player.volume
+        val steps = (ms / 25).coerceAtLeast(1)
+        for (i in 1..steps) {
+            player.volume = from + (to - from) * i / steps
+            delay(25)
+        }
+        player.volume = to
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -208,6 +297,8 @@ class RadioService : MediaLibraryService() {
         scope.cancel()
         PlaybackStatus.reconnecting.value = false
         RadioWidget.update(this, null, null, null, null, false)
+        isPlaying = false
+        effects.release()
         session?.run {
             release()
         }
@@ -236,11 +327,23 @@ class RadioService : MediaLibraryService() {
 
     private inner class PlayerEvents : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            RadioService.isPlaying = isPlaying
             if (isPlaying) {
                 retryAttempt = 0
                 retryJob?.cancel()
                 PlaybackStatus.reconnecting.value = false
+                // Fade in after a station change (or straight to full volume if fades are off).
+                if (!fading && player.volume < 1f) {
+                    volumeJob?.cancel()
+                    volumeJob = scope.launch {
+                        if (AppSettings.fadeStations) rampVolume(1f, 700) else { player.volume = 1f }
+                    }
+                }
             }
+        }
+
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            effects.attach(audioSessionId)
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -568,7 +671,15 @@ class RadioService : MediaLibraryService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
             val requested = mediaItems.getOrNull(if (startIndex == C.INDEX_UNSET) 0 else startIndex)
                 ?: mediaItems.firstOrNull()
-            queueStartingAt(pickStation(requested))
+            val station = pickStation(requested)
+            // Quick fade-out of the old station before switching.
+            if (AppSettings.fadeStations && player.isPlaying && !fading &&
+                player.currentMediaItem?.mediaId != station.id
+            ) {
+                volumeJob?.cancel()
+                rampVolume(0f, 300)
+            }
+            queueStartingAt(station)
         }
 
         override fun onAddMediaItems(
